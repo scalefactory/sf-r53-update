@@ -1,0 +1,311 @@
+#!/usr/bin/env ruby
+
+require 'net/http'
+require 'json'
+require 'logger'
+require 'aws-sdk-resources'
+require 'securerandom'
+require 'yaml'
+require 'optparse'
+
+log = Logger.new(STDERR)
+
+options = {}
+optparse = OptionParser.new do |opts|
+
+    options[:config] = '/etc/sf-r53-update.yaml'
+    opts.on('-c', '--config file') do |c|
+        options[:config] = c
+    end
+
+    options[:debug] = false
+    opts.on('-d', '--debug') do 
+        options[:debug] = true
+    end
+
+    options[:noop] = false
+    opts.on('-n', '--noop') do
+        options[:noop] = true
+    end
+
+end
+
+begin
+    optparse.parse!
+rescue OptionParser::InvalidOption, OptionParser::MissingArgument
+    $stderr.puts $!.to_s
+    $stderr.puts optparse
+    exit 2
+end
+
+if options[:debug]
+    log.level = Logger::DEBUG
+else
+    log.level = Logger::INFO
+end
+
+# Attempt to load config
+log.info("Loading config from #{options[:config]}")
+config = YAML::load( File.open( options[:config] ) )
+
+# Validate the config
+config_errors = 0
+%w[instance_asg_name instance_address_property hosted_zone record_set health_check_tag health_check_config].each do |k|
+    unless config.key?(k)
+        log.error("No #{k} in config file")
+        config_errors += 1
+    end
+end
+
+unless %w[public_ip_address private_ip_address].include? config['instance_address_property']
+    log.error("instance_address_property must be public_ip_address or private_ip_address")
+    config_errors += 1
+end
+
+if config_errors > 0
+    exit 1
+end
+
+# Ensure DNS names are given a trailing period
+%w[hosted_zone record_set].each do |k|
+    unless config[k].end_with? '.'
+        config[k] << '.'
+    end
+end
+
+log.debug("Config: #{config}")
+
+# If we haven't set a region in the environment, try and find one from
+# the link-local endpoint.
+
+unless ENV.key?('AWS_REGION')
+
+    begin
+        http = Net::HTTP.new('169.254.169.254', 80)
+        http.open_timeout = 1
+        http.read_timeout = 1
+        instance_identity = JSON.parse(http.request(Net::HTTP::Get.new('/latest/dynamic/instance-identity/document')).body)
+        ENV['AWS_REGION'] = instance_identity['region']
+        log.debug("Identified region as #{ENV['AWS_REGION']} from link-local endpoint")
+    rescue Errno::EHOSTUNREACH, Net::OpenTimeout, Timeout::Error
+        log.warn('No link-local endpoint - can\'t calculate region')
+    end
+
+end
+
+# Create clients for the API 
+
+ec2 = Aws::EC2::Client.new
+r53 = Aws::Route53::Client.new
+
+
+# Find EC2 instances matching the given filter, extract their addresses
+
+addresses = []
+
+instance_filter = [
+    {
+        'name'   => 'tag:aws:autoscaling:groupName',
+        'values' => [ config['instance_asg_name'] ]
+    }
+]
+
+instance_address_property = config['instance_address_property']
+
+ec2.describe_instances(filters: instance_filter).reservations.each do |r|
+    r.instances.each do |i|
+        address = i[instance_address_property]
+        log.debug("Found instance with #{instance_address_property} = #{address}")
+        addresses << address
+    end
+end
+
+
+health_checks = []
+health_check_id_by_address = {}
+
+# NB this call is paged. I haven't added support for paging since I don't expect
+# we'll ever see more than 100 health checks.  Flagging this here as a known limitation
+
+# TO DO should probably filter health check search by some kind of tag or
+# other identifier so we don't delete HCs for other RRs
+
+resp = r53.list_health_checks({ :max_items => 100 })
+resp.health_checks.each do |h|
+
+    list_tags = {
+        resource_type: 'healthcheck',
+        resource_id: h.id
+    }
+    log.debug(list_tags)
+    tags_resp = r53.list_tags_for_resource(list_tags)
+    log.debug(tags_resp)
+
+    tags = tags_resp.resource_tag_set.tags
+    
+    next unless tags.select { |x| x.key == 'sf-r53-update' and x.value == config['health_check_tag'] }
+
+    ip = h.health_check_config.ip_address
+    log.debug("Found health check for #{ip}")
+    health_checks << h
+    health_check_id_by_address[ip] = h.id
+
+end
+
+addresses.each do |address|
+
+    matching_health_check = health_checks.find_index { |x| x.health_check_config.ip_address == address }
+    if matching_health_check
+        log.info("Health check for #{address} already exists")
+        health_checks.delete_at(matching_health_check)
+    else
+        log.info("Creating a check for #{address}")
+        caller_reference = SecureRandom.uuid
+        hc = {
+            caller_reference: caller_reference,
+            health_check_config: config['health_check_config'].merge( {
+                ip_address: address
+            } )
+        } 
+
+        log.debug(hc)
+
+        id = '<id>'
+        unless options[:noop]
+            resp = r53.create_health_check(hc)
+            log.debug(resp)
+            id = resp.health_check.id
+        end
+
+        # Store health check id for later association with RR set
+        health_check_id_by_address[address] = id
+
+        tags = {
+            resource_type: 'healthcheck',
+            resource_id: id,
+            add_tags: [
+                { key: 'Name', value: address },
+                { key: 'sf-r53-update', value: config['health_check_tag'] }
+            ],
+        }
+
+        log.debug(tags)
+
+        unless options[:noop]
+            resp = r53.change_tags_for_resource(tags)
+            log.debug(resp)
+        end
+
+    end
+
+end
+
+# Remaining health checks don't match any current server, can be deleted
+health_checks.each do |h|
+    log.info("Deleting check for #{h.health_check_config.ip_address} - no matching instance")
+    args = { health_check_id: h.id }
+    log.debug(args)
+
+    unless options[:noop]
+        resp = r53.delete_health_check(args)
+        log.debug(resp)
+    end
+end
+
+
+
+# Find the Route53 hosted zone we care about.  Blow up if we can't find one.
+
+resp = r53.list_hosted_zones_by_name( { 
+    dns_name: config['hosted_zone'],
+    max_items: 1,
+} )
+
+if resp.hosted_zones.count == 0 or resp.hosted_zones.first.name != config['hosted_zone']
+    log.fatal "Hosted zone #{config['hosted_zone']} not found"
+    exit -1
+end
+
+zone_id = resp.hosted_zones.first.id
+
+log.debug("Found hosted zone #{config['hosted_zone']}, id #{zone_id}")
+
+# Find the resource record sets we care about.
+# NB maxes out at 100 items, probably not worth worrying about but this 
+#  is a limit.  (After that, this code needs to handle paging)
+resp = r53.list_resource_record_sets( {
+    hosted_zone_id: zone_id,
+    start_record_name: config['record_set'],
+    start_record_type: 'A',
+    max_items: 100,
+} )
+
+resource_record_sets = resp.resource_record_sets
+
+resource_record_sets.each do |record_set|
+    next unless record_set.name.gsub(/\\([0-8]{3})/) { |s| $1.to_i(8).chr } == config['record_set'] 
+                              #^ handles escaping eg. \052 == '*'
+    next unless record_set.type == 'A'
+    log.debug("Found record set with set_identifier #{record_set.resource_records.first.value}")
+end
+
+addresses.each do |address|
+
+    matching_rrs = resource_record_sets.find_index { |x| x.resource_records.first.value == address }
+    if matching_rrs
+        log.info("Resource Record Set for #{address} already exists")
+        resource_record_sets.delete_at(matching_rrs)
+    else
+        log.info("Creating a Resource Record Set for #{address}")
+
+        change = {
+            hosted_zone_id: zone_id,
+            change_batch: {
+                changes: [
+                    action: 'CREATE',
+                    resource_record_set: {
+                        name: config['record_set'],
+                        type: 'A',
+                        ttl:  60,
+                        resource_records: [ 
+                            { value: address } 
+                        ],
+                        set_identifier:  address,
+                        weight:          1,
+                        health_check_id: health_check_id_by_address[address]
+                    }
+                ]
+            }
+        }
+
+        log.debug( change )
+        unless options[:noop]
+            resp = r53.change_resource_record_sets( change )
+            log.debug( resp )
+        end
+
+    end
+
+end
+
+resource_record_sets.each do |rrs|
+    log.info("Deleting resource record set for #{rrs.resource_records.first.value}")
+    args = {
+        hosted_zone_id: zone_id,
+        change_batch: {
+            changes: [ {
+                action: 'DELETE',
+                resource_record_set: rrs,
+            } ]
+        }
+    }
+    log.debug(args)
+
+    unless options[:noop]
+        resp = r53.change_resource_record_sets(args)
+        log.debug(resp)
+    end
+end
+
+
+exit 0
