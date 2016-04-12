@@ -127,9 +127,6 @@ health_check_id_by_address = {}
 # NB this call is paged. I haven't added support for paging since I don't expect
 # we'll ever see more than 100 health checks.  Flagging this here as a known limitation
 
-# TO DO should probably filter health check search by some kind of tag or
-# other identifier so we don't delete HCs for other RRs
-
 resp = r53.list_health_checks({ :max_items => 100 })
 resp.health_checks.each do |h|
 
