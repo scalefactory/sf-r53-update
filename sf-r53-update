@@ -240,12 +240,13 @@ resp = r53.list_resource_record_sets( {
     max_items: 100,
 } )
 
-resource_record_sets = resp.resource_record_sets
+resource_record_sets = []
 
-resource_record_sets.each do |record_set|
+resp.resource_record_sets.each do |record_set|
     next unless record_set.name.gsub(/\\([0-8]{3})/) { |s| $1.to_i(8).chr } == config['record_set'] 
                               #^ handles escaping eg. \052 == '*'
     next unless record_set.type == 'A'
+    resource_record_sets << record_set
     log.debug("Found record set with set_identifier #{record_set.resource_records.first.value}")
 end
 
