@@ -143,8 +143,8 @@ resp.health_checks.each do |h|
     log.debug(tags_resp)
 
     tags = tags_resp.resource_tag_set.tags
-    
-    next unless tags.select { |x| x.key == 'sf-r53-update' and x.value == config['health_check_tag'] }
+
+    next unless tags.select { |x| x.key == 'sf-r53-update' and x.value == config['health_check_tag'] }.count > 0
 
     ip = h.health_check_config.ip_address
     log.debug("Found health check for #{ip}")
