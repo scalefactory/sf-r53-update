@@ -107,7 +107,11 @@ instance_filter = [
     {
         'name'   => 'tag:aws:autoscaling:groupName',
         'values' => [ config['instance_asg_name'] ]
-    }
+    },
+    {
+        'name' => 'instance-state-name',
+        'values' => [ 'running' ],
+    },
 ]
 
 instance_address_property = config['instance_address_property']
