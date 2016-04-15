@@ -31,13 +31,14 @@ The IAM role will need the following permissions, though you can constrain the R
             {
                 "Action": [
                     "ec2:DescribeInstances",
-                    "route53:ListHealthChecks",
-                    "route53:CreateHealthCheck",
                     "route53:DeleteHealthCheck",
-                    "route53:ListHostedZones",
-                    "route53:ListResourceRecordSets",
+                    "route53:ChangeTagsForResource",
+                    "route53:CreateHealthCheck",
                     "route53:ChangeResourceRecordSets",
-                    "tag:*"
+                    "route53:ListResourceRecordSets",
+                    "route53:ListHostedZonesByName",
+                    "route53:ListTagsForResource",
+                    "route53:ListHealthChecks"
                 ],
                 "Effect": "Allow",
                 "Resource": [
@@ -83,4 +84,4 @@ The 'health_check_config' hash is used as-is in http://docs.aws.amazon.com/sdkfo
 
 If the resource record set for an IP already exists, its healthcheck ID won't be updated.
 
-
+If the script is run simultaneously for a given configuration, for example from cron with an indentical schedule on two EC2 instances, the results can be unpredictable. If running the script from cron on multiple instances, stagger the cron schedule so script invocations do not overlap.
