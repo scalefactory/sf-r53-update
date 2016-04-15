@@ -185,7 +185,7 @@ addresses.each do |address|
             resource_type: 'healthcheck',
             resource_id: id,
             add_tags: [
-                { key: 'Name', value: address },
+                { key: 'Name', value: "#{address}/#{config['health_check_tag']}" },
                 { key: 'sf-r53-update', value: config['health_check_tag'] }
             ],
         }
