@@ -8,7 +8,7 @@ This is a script to maintain Route53 resource record sets and health checks acco
 
 ```
 Usage: sf-r53-update [options]
-    -c, --config file   Path to YAML config file (default /etc//etc/sf-r53-update.yaml)
+    -c, --config file   Path to YAML config file (default /etc/sf-r53-update.yaml)
     -d, --debug         Log debug messages
     -n, --noop          Don't make any real changes
 ```
