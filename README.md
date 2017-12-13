@@ -19,8 +19,7 @@ Usage: sf-r53-update [options]
 
 This script will attempt to use a machine's IAM role to identify itself to the AWS APIs, and this is the recommended method of operation.
 
-Absent an IAM role, it will fall back to looking up the credentials in the environment.  Use `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_REGION` va
-riables.
+Absent an IAM role, it will fall back to looking up the credentials in the environment.  Use `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_REGION` variables.
 
 The IAM role will need the following permissions, though you can constrain the Resource match for additional security if required.
 
