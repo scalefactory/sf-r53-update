@@ -1,5 +1,20 @@
 #!/usr/bin/env ruby
 
+# This is a PoC script that utilises the AWS Service Discovery API[1] to
+# manipulate Route 53 objects. This API provides confirmation of all
+# requests making it possible to update Route 53 objects in a consistent
+# and durable fashion.
+#
+# Further work will be required to make the script suitable for production
+# use including:
+#
+#  - Checking responses for rate limiting and quota limits errors
+#  - Immediately aborting on failed responses rather than timing out
+#  - Restoring health check functionality from sf-r53-update
+#  - Handling of edge cases when script is terminated mid-run
+#
+# [1] https://docs.aws.amazon.com/Route53/latest/APIReference/overview-service-discovery.html
+
 require 'net/http'
 require 'json'
 require 'logger'
