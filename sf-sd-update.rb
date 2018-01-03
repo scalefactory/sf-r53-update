@@ -158,7 +158,7 @@ unless namespace_exists
     sleep(SLEEP_PERIOD)
     if retries == MAX_RETRIES
       error_message = sd.get_operation(operation_id: response.operation_id).operation.error_message
-      log.critical("Failed to create namespace for zone #{config['hosted_zone']}, error #{error_message}")
+      log.fatal("Failed to create namespace for zone #{config['hosted_zone']}, error #{error_message}")
       exit(1)
     end
     retries += 1
@@ -197,7 +197,7 @@ unless service_exists
     )
     service_id = response.service.id
   rescue e
-    log.critical("Failed to create service #{config['service_name']} with error #{e}")
+    log.fatal("Failed to create service #{config['service_name']} with error #{e}")
     exit(1)
   end
 end
@@ -246,10 +246,10 @@ loop do
   break if pending_operations.empty?
   sleep(SLEEP_PERIOD)
   if retries == MAX_RETRIES
-    log.critical "Operations failed after #{retries} retries:"
+    log.fatal "Operations failed after #{retries} retries:"
     pending_operations.each do |operation_id|
       status = sd.get_operation(operation_id: operation_id).operation.status
-      log.critical "Operation #{operation_id} failed with status: #{status}"
+      log.fatal "Operation #{operation_id} failed with status: #{status}"
     end
     exit(1)
   end
@@ -263,7 +263,7 @@ if config['prune_service']
     begin
           response = sd.delete_service(id: service_id)
         rescue e
-          log.critical("Failed to delete service #{config['service_name']}, error #{e}")
+          log.fatal("Failed to delete service #{config['service_name']}, error #{e}")
           exit(1)
         end
     log.info "Deleted service: #{config['service_name']}"
@@ -286,7 +286,7 @@ if config['prune_namespace'] && config['prune_service']
     sleep(SLEEP_PERIOD)
     if retries == MAX_RETRIES
       error_message = sd.get_operation(operation_id: response.operation_id).operation.error_message
-      log.critical("Failed to delete namespace for zone #{config['hosted_zone']}, error #{error_message}")
+      log.fatal("Failed to delete namespace for zone #{config['hosted_zone']}, error #{error_message}")
       exit(1)
     end
     retries += 1
