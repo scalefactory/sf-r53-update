@@ -59,6 +59,7 @@ instance_address_property: public_ip_address
 hosted_zone:               example.com.
 record_set:                '*.example.com'
 health_check_tag:          example_health_check
+startup_delay_random:      60
 
 health_check_config:
     :port:              80
@@ -69,6 +70,7 @@ health_check_config:
 
 This configuration will cause the script to work in the following way:
 
+  * Wait between 0 and 60 seconds (optional; avoids "thundering herd" effects)
   * Enumerate all hosts in the `example_asg` autoscaling group.
   * Obtain their public IP address
   * Create health checks following the health_check_config settings for each IP (if these don't exist), tagging them with `example_health_check`.

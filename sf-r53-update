@@ -75,6 +75,14 @@ end
 
 log.debug("Config: #{config}")
 
+# If configured, delay startup
+# Skip this for interactive use
+if config['startup_delay_random'] and not (STDOUT.isatty or STDERR.isatty or options[:noop])
+    startup_delay = rand(config['startup_delay_random'])
+    log.info("Waiting #{startup_delay}s (maximum #{config['startup_delay_random']})")
+    sleep(startup_delay)
+end
+
 # If we haven't set a region in the environment, try and find one from
 # the link-local endpoint.
 
@@ -92,6 +100,8 @@ unless ENV.key?('AWS_REGION')
     end
 
 end
+
+
 
 # Create clients for the API 
 
